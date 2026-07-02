@@ -30,7 +30,7 @@ import {
 } from 'recharts';
 
 export const Dashboard: React.FC = () => {
-  const { leads, activities, followUps, searchQuery } = useApp();
+  const { activities, searchQuery, isLoading, dashboardMetrics } = useApp();
   const navigate = useNavigate();
 
   // If user searches globally, redirect to leads page where filters and search will execute
@@ -40,74 +40,81 @@ export const Dashboard: React.FC = () => {
     }
   }, [searchQuery, navigate]);
 
-  // Calculations for Stat Cards
-  const totalLeads = leads.length;
-  const activeDemos = leads.filter((l) => l.status === 'demo_scheduled').length;
-  const trialsRunning = leads.filter((l) => l.status === 'trial_running').length;
-  const convertedLeads = leads.filter((l) => l.status === 'converted').length;
-  const nonInterestedLeads = leads.filter((l) => l.status === 'not_interested').length;
-  
-  const eligibleForConversionRate = totalLeads - leads.filter(l => l.status === 'new').length;
-  const conversionRate = eligibleForConversionRate > 0 
-    ? ((convertedLeads / eligibleForConversionRate) * 100).toFixed(1) 
-    : '0.0';
+  // Loading skeleton state
+  if (isLoading || !dashboardMetrics) {
+    return (
+      <div className="space-y-8 animate-pulse">
+        <div>
+          <div className="h-7 w-48 bg-neutral-200 rounded-lg"></div>
+          <div className="h-4 w-72 bg-neutral-100 rounded-lg mt-2"></div>
+        </div>
+        
+        {/* Stat Cards Skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-32 bg-neutral-50 rounded-2xl border border-neutral-200 p-5 flex flex-col justify-between">
+              <div className="flex justify-between">
+                <div className="space-y-2">
+                  <div className="h-3.5 w-24 bg-neutral-200 rounded"></div>
+                  <div className="h-7 w-12 bg-neutral-250 rounded"></div>
+                </div>
+                <div className="w-10 h-10 bg-neutral-200 rounded-xl"></div>
+              </div>
+              <div className="h-3 w-full bg-neutral-100 rounded"></div>
+            </div>
+          ))}
+        </div>
 
-  // Trends calculation (static representation for high visual polish, but computed from mock timestamps)
-  const currentMonthLeads = leads.filter(l => new Date(l.createdAt).getMonth() === 6).length; // July
-  const lastMonthLeads = leads.filter(l => new Date(l.createdAt).getMonth() === 5).length; // June
-  const leadTrend = currentMonthLeads - lastMonthLeads >= 0 
-    ? `+${currentMonthLeads - lastMonthLeads} this month` 
-    : `${currentMonthLeads - lastMonthLeads} this month`;
+        {/* Charts Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 h-96 bg-neutral-50 rounded-2xl border border-neutral-200"></div>
+          <div className="h-96 bg-neutral-50 rounded-2xl border border-neutral-200"></div>
+        </div>
+      </div>
+    );
+  }
 
   const statCards = [
     {
       title: 'Total Shop Leads',
-      value: totalLeads,
-      trend: leadTrend,
-      isPositive: currentMonthLeads - lastMonthLeads >= 0,
+      value: dashboardMetrics.summary.total_leads,
+      trend: `+${dashboardMetrics.summary.total_leads} total`,
+      isPositive: true,
       icon: Users,
       iconColor: 'text-brand-600 bg-brand-50 border-brand-100',
-      subtitle: 'Total registered prospects'
+      subtitle: 'Registered prospects'
     },
     {
       title: 'Active Demos',
-      value: activeDemos,
-      trend: '+3 scheduled this week',
+      value: dashboardMetrics.summary.active_demos,
+      trend: 'Pipeline demonstrations',
       isPositive: true,
       icon: Tv,
       iconColor: 'text-amber-600 bg-amber-50 border-amber-100',
-      subtitle: 'Scheduled demonstrations'
+      subtitle: 'Leads scheduled for demo'
     },
     {
       title: 'Trials Running',
-      value: trialsRunning,
-      trend: '+2 started today',
+      value: dashboardMetrics.summary.trials_running,
+      trend: 'Live pilot setups',
       isPositive: true,
       icon: PlayCircle,
       iconColor: 'text-purple-600 bg-purple-50 border-purple-100',
-      subtitle: 'Active sandbox trials'
+      subtitle: 'Sandboxed edge trials'
     },
     {
       title: 'Conversion Rate',
-      value: `${conversionRate}%`,
-      trend: 'Lead-to-converted metrics',
+      value: `${dashboardMetrics.summary.conversion_rate}%`,
+      trend: 'Successful conversions',
       isPositive: true,
       icon: TrendingUp,
       iconColor: 'text-emerald-600 bg-emerald-50 border-emerald-100',
-      subtitle: 'Converted vs completed demos'
+      subtitle: 'Converted vs eligible leads'
     }
   ];
 
   // Chart 1: Monthly Lead Growth
-  const monthlyGrowthData = [
-    { name: 'Jan', Leads: 2 },
-    { name: 'Feb', Leads: 5 },
-    { name: 'Mar', Leads: 8 },
-    { name: 'Apr', Leads: 12 },
-    { name: 'May', Leads: 18 },
-    { name: 'Jun', Leads: 23 },
-    { name: 'Jul', Leads: totalLeads } // Dynamically binding to actual leads count
-  ];
+  const monthlyGrowthData = dashboardMetrics.monthly_growth;
 
   // Chart 2: Leads by Status
   const statusColors = {
@@ -116,38 +123,24 @@ export const Dashboard: React.FC = () => {
     trial_running: '#a855f7', // purple
     interested: '#14b8a6', // teal
     converted: '#10b981', // green
-    not_interested: '#ef4444' // red
+    not_interested: '#ef4444', // red
+    trial_expired: '#6b7280' // gray
   };
 
-  const statusPieData = [
-    { name: 'New Lead', value: leads.filter(l => l.status === 'new').length, color: statusColors.new },
-    { name: 'Demo Scheduled', value: activeDemos, color: statusColors.demo_scheduled },
-    { name: 'Trial Running', value: trialsRunning, color: statusColors.trial_running },
-    { name: 'Interested', value: leads.filter(l => l.status === 'interested').length, color: statusColors.interested },
-    { name: 'Converted', value: convertedLeads, color: statusColors.converted },
-    { name: 'Not Interested', value: nonInterestedLeads, color: statusColors.not_interested }
-  ].filter(item => item.value > 0);
+  const statusPieData = dashboardMetrics.status_distribution.map((item: any) => ({
+    name: item.label,
+    value: item.count,
+    color: statusColors[item.status as keyof typeof statusColors] || '#94a3b8'
+  })).filter((item: any) => item.value > 0);
 
   // Chart 3: Camera Distribution
-  const cameraDistribution = {
-    '1-10 Cameras': leads.filter(l => l.cameraDetails.count <= 10).length,
-    '11-30 Cameras': leads.filter(l => l.cameraDetails.count > 10 && l.cameraDetails.count <= 30).length,
-    '31-80 Cameras': leads.filter(l => l.cameraDetails.count > 30 && l.cameraDetails.count <= 80).length,
-    '80+ Cameras': leads.filter(l => l.cameraDetails.count > 80).length
-  };
-
-  const cameraChartData = Object.entries(cameraDistribution).map(([range, count]) => ({
-    range,
-    Shops: count
-  }));
+  const cameraChartData = dashboardMetrics.camera_distribution;
 
   // Chart 4: Conversion Rate Trend
   const conversionTrendData = [
-    { month: 'Mar', Rate: 20 },
-    { month: 'Apr', Rate: 22 },
-    { month: 'May', Rate: 25 },
-    { month: 'Jun', Rate: 33 },
-    { month: 'Jul', Rate: parseFloat(conversionRate) || 35 }
+    { month: 'May', Rate: 20 },
+    { month: 'Jun', Rate: 24 },
+    { month: 'Jul', Rate: dashboardMetrics.summary.conversion_rate }
   ];
 
   // Custom Chart Tooltip
@@ -169,9 +162,7 @@ export const Dashboard: React.FC = () => {
   const recentActivities = activities.slice(0, 5);
 
   // Upcoming followups
-  const upcomingFollowups = followUps
-    .filter(f => f.status === 'pending')
-    .slice(0, 3);
+  const upcomingFollowups = dashboardMetrics.upcoming_followups.slice(0, 3);
 
   return (
     <div className="space-y-8">
@@ -266,7 +257,7 @@ export const Dashboard: React.FC = () => {
                     paddingAngle={3}
                     dataKey="value"
                   >
-                    {statusPieData.map((entry, index) => (
+                    {statusPieData.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -285,14 +276,14 @@ export const Dashboard: React.FC = () => {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-black text-neutral-slate-800">{totalLeads}</span>
+                <span className="text-2xl font-black text-neutral-slate-800">{dashboardMetrics.summary.total_leads}</span>
                 <span className="text-[9px] text-neutral-slate-450 uppercase tracking-widest font-semibold">Total Leads</span>
               </div>
             </div>
 
             {/* Legend Labels Grid */}
             <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-left border-t border-neutral-slate-100 pt-3">
-              {statusPieData.map((item, idx) => (
+              {statusPieData.map((item: any, idx: number) => (
                 <div key={idx} className="flex items-center gap-1.5 min-w-0">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="text-[10px] font-medium text-neutral-slate-655 truncate">{item.name}</span>
@@ -318,33 +309,21 @@ export const Dashboard: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cameraChartData} margin={{ top: 10, right: 15, left: -25, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="range" stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <Tooltip
-                  content={({ active, payload, label }: any) => {
-                    if (active && payload && payload.length) {
-                      return (
-                        <div className="glassmorphism px-3 py-2 rounded-lg border border-neutral-slate-200 text-xs font-semibold">
-                          <p className="text-neutral-slate-500">{label}</p>
-                          <p className="text-brand-600 mt-0.5">Leads: <span className="font-bold text-neutral-slate-900">{payload[0].value}</span></p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Bar dataKey="Shops" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={45} />
+                <XAxis dataKey="range" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="Shops" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </CardBody>
         </Card>
 
-        {/* Conversion Rate Progression Line Chart */}
+        {/* Conversion rate line chart */}
         <Card>
           <CardHeader>
             <div>
-              <h3 className="text-sm font-bold text-neutral-slate-800">Conversion Rate History</h3>
-              <p className="text-[10px] text-neutral-slate-400 mt-0.5">Lead-to-client conversion velocity</p>
+              <h3 className="text-sm font-bold text-neutral-slate-800">Demo Conversion Performance</h3>
+              <p className="text-[10px] text-neutral-slate-400 mt-0.5">Historical efficiency ratios</p>
             </div>
           </CardHeader>
           <CardBody className="h-72">
@@ -354,113 +333,114 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="month" stroke="#94a3b8" fontSize={11} tickLine={false} />
                 <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit="%" />
                 <Tooltip
-                  content={({ active, payload, label }: any) => {
+                  content={({ active, payload }: any) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="glassmorphism px-3 py-2 rounded-lg border border-neutral-slate-200 text-xs font-semibold">
-                          <p className="text-neutral-slate-500">{label}</p>
-                          <p className="text-emerald-600 mt-0.5">Rate: <span className="font-bold text-neutral-slate-900">{payload[0].value}%</span></p>
+                        <div className="glassmorphism p-2 rounded-lg border border-neutral-slate-200 text-[10px] font-bold">
+                          Conversion: {payload[0].value}%
                         </div>
                       );
                     }
                     return null;
                   }}
                 />
-                <Line type="monotone" dataKey="Rate" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="Rate" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
           </CardBody>
         </Card>
       </div>
 
-      {/* Third Row: Activities Feed & Tasks */}
+      {/* Third Row: Workflows Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Activities */}
+        {/* Recent Audit Logs */}
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-neutral-slate-400" />
-              <h3 className="text-sm font-bold text-neutral-slate-800">Security Team Activity Log</h3>
+          <CardHeader className="flex justify-between items-center">
+            <div>
+              <h3 className="text-sm font-bold text-neutral-slate-800">Recent System Logs</h3>
+              <p className="text-[10px] text-neutral-slate-400 mt-0.5">Audit log of system and lead events</p>
             </div>
+            <span className="text-[10px] font-semibold text-neutral-slate-450 flex items-center gap-0.5">
+              Live Feed <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+            </span>
           </CardHeader>
-          <CardBody className="p-0">
-            <div className="divide-y divide-neutral-slate-100">
-              {recentActivities.map((act) => {
-                const lead = leads.find((l) => l.id === act.leadId);
-                const leadName = lead ? lead.businessName : 'Unknown Shop';
-
-                return (
-                  <div key={act.id} className="p-4 hover:bg-neutral-slate-50 transition-colors flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 shrink-0 text-xs font-bold">
-                      {act.userName.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-bold text-neutral-slate-850">
-                          {act.userName} <span className="font-normal text-neutral-slate-450">logged</span> {act.action}
-                        </p>
-                        <span className="text-[10px] text-neutral-slate-400 whitespace-nowrap">
-                          {new Date(act.timestamp).toLocaleDateString()}
-                        </span>
+          <CardBody>
+            <div className="flow-root">
+              <ul className="-mb-8">
+                {recentActivities.map((act, actIdx) => (
+                  <li key={act.id}>
+                    <div className="relative pb-8">
+                      {actIdx !== recentActivities.length - 1 && (
+                        <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-neutral-slate-100" aria-hidden="true" />
+                      )}
+                      <div className="relative flex space-x-3">
+                        <div>
+                          <span className="h-8 w-8 rounded-full bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600">
+                            <Activity className="w-4 h-4" />
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0 pt-1.5">
+                          <p className="text-xs font-semibold text-neutral-slate-700">
+                            {act.userName}{' '}
+                            <span className="font-normal text-neutral-slate-500">performed</span>{' '}
+                            <span className="font-bold text-brand-600">{act.action}</span>
+                          </p>
+                          <p className="text-[10px] text-neutral-slate-400 mt-0.5">{act.details}</p>
+                        </div>
+                        <div className="text-right text-[10px] whitespace-nowrap text-neutral-slate-450">
+                          <time>{new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                        </div>
                       </div>
-                      <p className="text-xs text-neutral-slate-500 mt-1">
-                        Shop: <span className="font-bold text-neutral-slate-700">{leadName}</span> &bull; {act.details}
-                      </p>
                     </div>
+                  </li>
+                ))}
+                {recentActivities.length === 0 && (
+                  <div className="text-center py-6 text-xs text-neutral-slate-400">
+                    No recent activities recorded.
                   </div>
-                );
-              })}
+                )}
+              </ul>
             </div>
           </CardBody>
         </Card>
 
-        {/* Action Follow-Ups */}
+        {/* Immediate Follow-ups Panel */}
         <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-neutral-slate-400" />
-              <h3 className="text-sm font-bold text-neutral-slate-800">Critical Tasks</h3>
+          <CardHeader className="flex justify-between items-center">
+            <div>
+              <h3 className="text-sm font-bold text-neutral-slate-800">Pending Outreaches</h3>
+              <p className="text-[10px] text-neutral-slate-400 mt-0.5">Nearest pending outreach items</p>
             </div>
-            <button onClick={() => navigate('/followups')} className="text-[11px] font-bold text-brand-600 hover:text-brand-700 flex items-center gap-0.5 cursor-pointer">
-              View All <ChevronRight className="w-3 h-3" />
+            <button
+              onClick={() => navigate('/follow-ups')}
+              className="text-[10px] font-bold text-brand-600 hover:text-brand-700 flex items-center gap-0.5"
+            >
+              All <ChevronRight className="w-3 h-3" />
             </button>
           </CardHeader>
-          <CardBody className="p-0">
-            <div className="divide-y divide-neutral-slate-100">
-              {upcomingFollowups.length === 0 ? (
-                <div className="p-8 text-center text-xs text-neutral-slate-400">
-                  No upcoming follow-up tasks.
+          <CardBody>
+            <div className="space-y-4">
+              {upcomingFollowups.map((task: any) => (
+                <div
+                  key={task.id}
+                  onClick={() => navigate(`/leads/${task.leadId}`)}
+                  className="group cursor-pointer p-3 rounded-xl border border-neutral-slate-100 hover:border-brand-200 bg-neutral-slate-50/50 hover:bg-white transition-all flex flex-col justify-between gap-2 shadow-sm hover:shadow"
+                >
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] font-black text-neutral-slate-655 truncate max-w-[120px]">
+                      {task.createdBy}
+                    </span>
+                    <span className="text-[9px] font-semibold text-neutral-slate-400 flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-neutral-slate-350" /> {task.date}
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-slate-600 line-clamp-2 leading-relaxed">{task.notes}</p>
                 </div>
-              ) : (
-                upcomingFollowups.map((task) => {
-                  const lead = leads.find((l) => l.id === task.leadId);
-                  const isOverdue = new Date(task.date) < new Date('2026-07-03');
-
-                  return (
-                    <div key={task.id} className="p-4 hover:bg-neutral-slate-50/70 transition-colors">
-                      <div className="flex justify-between items-start gap-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          task.priority === 'high'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-105 border-rose-200/50'
-                            : task.priority === 'medium'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200/50'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200/50'
-                        }`}>
-                          {task.priority} priority
-                        </span>
-                        <span className={`text-[10px] font-bold ${isOverdue ? 'text-danger-550 text-danger-500 animate-pulse' : 'text-neutral-slate-400'}`}>
-                          {isOverdue ? 'OVERDUE' : task.date}
-                        </span>
-                      </div>
-                      <p className="text-xs font-bold text-neutral-slate-800 mt-2 hover:underline cursor-pointer" onClick={() => navigate(`/leads/${task.leadId}`)}>
-                        {lead ? lead.businessName : 'Unknown Shop'}
-                      </p>
-                      <p className="text-xs text-neutral-slate-500 mt-1 leading-snug truncate">
-                        {task.notes}
-                      </p>
-                    </div>
-                  );
-                })
+              ))}
+              {upcomingFollowups.length === 0 && (
+                <div className="text-center py-10 text-xs text-neutral-slate-400">
+                  All caught up! No pending follow-ups.
+                </div>
               )}
             </div>
           </CardBody>

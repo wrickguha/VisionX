@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ShopLead, FollowUp, ActivityLog, AppState } from '../types';
-import { initialLeads, initialFollowUps, initialActivities, mockCurrentUser, mockNotifications } from '../data/mockData';
+import { api } from '../services/api';
+import { mockCurrentUser, mockNotifications } from '../data/mockData';
 
 interface Toast {
   id: string;
@@ -18,14 +19,22 @@ interface AppContextType {
   currentUser: AppState['currentUser'];
   searchQuery: string;
   setSearchQuery: (query: string) => void;
-  addLead: (lead: Omit<ShopLead, 'id' | 'createdAt' | 'updatedAt'>) => ShopLead;
-  updateLead: (id: string, updates: Partial<ShopLead>) => void;
-  deleteLead: (id: string) => void;
-  addFollowUp: (followUp: Omit<FollowUp, 'id'>) => void;
-  updateFollowUp: (id: string, updates: Partial<FollowUp>) => void;
-  completeFollowUp: (id: string) => void;
-  deleteFollowUp: (id: string) => void;
-  addActivity: (leadId: string, action: string, details?: string) => void;
+  isLoading: boolean;
+  refreshData: () => Promise<void>;
+  dashboardMetrics: any; // Using dynamic type or DashboardMetrics from api.ts
+  
+  // Lead Operations
+  addLead: (lead: Omit<ShopLead, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ShopLead>;
+  updateLead: (id: string, updates: Partial<ShopLead>) => Promise<void>;
+  deleteLead: (id: string) => Promise<void>;
+  
+  // Follow-up Operations
+  addFollowUp: (followUp: Omit<FollowUp, 'id'>) => Promise<void>;
+  updateFollowUp: (id: string, updates: Partial<FollowUp>) => Promise<void>;
+  completeFollowUp: (id: string) => Promise<void>;
+  deleteFollowUp: (id: string) => Promise<void>;
+  
+  // Notification & Toast Operations
   markNotificationAsRead: (id: string) => void;
   toasts: Toast[];
   addToast: (title: string, message: string, type?: Toast['type'], duration?: number) => void;
@@ -35,45 +44,57 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [leads, setLeads] = useState<ShopLead[]>(() => {
-    const saved = localStorage.getItem('vx_leads');
-    return saved ? JSON.parse(saved) : initialLeads;
-  });
-
-  const [followUps, setFollowUps] = useState<FollowUp[]>(() => {
-    const saved = localStorage.getItem('vx_followups');
-    return saved ? JSON.parse(saved) : initialFollowUps;
-  });
-
-  const [activities, setActivities] = useState<ActivityLog[]>(() => {
-    const saved = localStorage.getItem('vx_activities');
-    return saved ? JSON.parse(saved) : initialActivities;
-  });
-
-  const [notifications, setNotifications] = useState<AppState['notifications']>(() => {
-    const saved = localStorage.getItem('vx_notifications');
-    return saved ? JSON.parse(saved) : mockNotifications;
-  });
-
+  const [leads, setLeads] = useState<ShopLead[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [notifications, setNotifications] = useState<AppState['notifications']>(mockNotifications);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dashboardMetrics, setDashboardMetrics] = useState<any>(null);
 
-  // Sync to localstorage
-  useEffect(() => {
-    localStorage.setItem('vx_leads', JSON.stringify(leads));
-  }, [leads]);
+  // Fetch initial data from API
+  const refreshData = async () => {
+    setIsLoading(true);
+    try {
+      // 1. Fetch dashboard metrics (to get upcoming/overdue followups and status items)
+      const dashboard = await api.getDashboard();
+      
+      // 2. Fetch all leads from backend (without paging filters to keep lists populated)
+      const paginatedLeads = await api.getLeads({ per_page: 100 });
+      setLeads(paginatedLeads.data);
+
+      // 3. Compile mock activity logs based on real leads (since backend doesn't store audit logs yet)
+      const compiledActivities: ActivityLog[] = paginatedLeads.data.map((lead) => ({
+        id: `act-comp-${lead.id}`,
+        leadId: lead.id,
+        timestamp: lead.createdAt || new Date().toISOString(),
+        userId: 'user-1',
+        userName: mockCurrentUser.name,
+        action: lead.status === 'converted' ? 'Converted' : 'Lead Created',
+        details: `Shop registered under category ${lead.businessType}.`
+      }));
+      setActivities(compiledActivities);
+
+      // 4. Set followups compiled from dashboard lists
+      const allFollowups = [...dashboard.upcoming_followups, ...dashboard.overdue_followups];
+      setFollowUps(allFollowups);
+      
+      // 5. Store dashboard metrics
+      setDashboardMetrics(dashboard);
+
+    } catch (err) {
+      console.error('Error fetching backend data:', err);
+      addToast('Connection Error', 'Could not sync database records with Laravel backend.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem('vx_followups', JSON.stringify(followUps));
-  }, [followUps]);
-
-  useEffect(() => {
-    localStorage.setItem('vx_activities', JSON.stringify(activities));
-  }, [activities]);
-
-  useEffect(() => {
-    localStorage.setItem('vx_notifications', JSON.stringify(notifications));
-  }, [notifications]);
+    refreshData();
+  }, []);
 
   // Toast Helpers
   const addToast = (title: string, message: string, type: Toast['type'] = 'info', duration = 4000) => {
@@ -88,121 +109,116 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Activity logger
-  const addActivity = (leadId: string, action: string, details?: string) => {
-    const newActivity: ActivityLog = {
-      id: `act-${Math.random().toString(36).substring(2, 9)}`,
-      leadId,
-      timestamp: new Date().toISOString(),
-      userId: 'user-1',
-      userName: mockCurrentUser.name,
-      action,
-      details
-    };
-    setActivities((prev) => [newActivity, ...prev]);
-  };
-
   // Lead CRUD
-  const addLead = (leadData: Omit<ShopLead, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const id = `lead-${Math.random().toString(36).substring(2, 9)}`;
-    const now = new Date().toISOString();
-    const newLead: ShopLead = {
-      ...leadData,
-      id,
-      createdAt: now,
-      updatedAt: now
-    };
-    setLeads((prev) => [newLead, ...prev]);
-    addActivity(id, 'Lead Created', `Lead for ${leadData.businessName} was added.`);
-    addToast('Success', `${leadData.businessName} lead created successfully.`, 'success');
-    return newLead;
+  const addLead = async (leadData: Omit<ShopLead, 'id' | 'createdAt' | 'updatedAt'>) => {
+    setIsLoading(true);
+    try {
+      const newLead = await api.createLead(leadData);
+      addToast('Success', `${leadData.businessName} lead created successfully.`, 'success');
+      await refreshData();
+      return newLead;
+    } catch (err) {
+      console.error(err);
+      addToast('Save Failed', 'Could not create lead in Laravel API.', 'error');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const updateLead = (id: string, updates: Partial<ShopLead>) => {
-    setLeads((prev) =>
-      prev.map((lead) => {
-        if (lead.id === id) {
-          const updated = {
-            ...lead,
-            ...updates,
-            updatedAt: new Date().toISOString()
-          };
-          
-          // Log specific significant updates
-          if (updates.status && updates.status !== lead.status) {
-            addActivity(id, 'Status Updated', `Status changed from ${lead.status.replace('_', ' ')} to ${updates.status.replace('_', ' ')}.`);
-            
-            // Auto add notification if status converted
-            if (updates.status === 'converted') {
-              const newNotif = {
-                id: `notif-${Math.random().toString(36).substring(2, 9)}`,
-                title: 'Conversion Achieved! 🎉',
-                message: `${lead.businessName} has been converted successfully.`,
-                timestamp: new Date().toISOString(),
-                read: false
-              };
-              setNotifications((prevNotif) => [newNotif, ...prevNotif]);
-            }
-          } else {
-            addActivity(id, 'Lead Modified', 'Basic lead information was updated.');
-          }
-
-          return updated;
-        }
-        return lead;
-      })
-    );
-    addToast('Success', 'Lead information updated.', 'success');
+  const updateLead = async (id: string, updates: Partial<ShopLead>) => {
+    setIsLoading(true);
+    try {
+      await api.updateLead(id, updates);
+      addToast('Success', 'Lead information updated.', 'success');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Update Failed', 'Could not save lead changes in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const deleteLead = (id: string) => {
-    const lead = leads.find(l => l.id === id);
-    if (!lead) return;
-    setLeads((prev) => prev.filter((l) => l.id !== id));
-    // clean up associated followups
-    setFollowUps((prev) => prev.filter((f) => f.leadId !== id));
-    setActivities((prev) => prev.filter((a) => a.leadId !== id));
-    addToast('Deleted', `${lead.businessName} lead and related logs have been deleted.`, 'error');
+  const deleteLead = async (id: string) => {
+    setIsLoading(true);
+    try {
+      await api.deleteLead(id);
+      addToast('Deleted', 'Lead and related logs have been deleted.', 'error');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Delete Failed', 'Could not delete lead in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Follow-up CRUD
-  const addFollowUp = (followUpData: Omit<FollowUp, 'id'>) => {
-    const id = `followup-${Math.random().toString(36).substring(2, 9)}`;
-    const newFollowUp: FollowUp = {
-      ...followUpData,
-      id
-    };
-    setFollowUps((prev) => [newFollowUp, ...prev]);
-    
-    const lead = leads.find(l => l.id === followUpData.leadId);
-    const leadName = lead ? lead.businessName : 'Unknown Shop';
-    addActivity(followUpData.leadId, 'Follow-up Scheduled', `Follow-up set for ${followUpData.date}.`);
-    addToast('Follow-up Added', `New task scheduled for ${leadName}.`, 'success');
+  const addFollowUp = async (followUpData: Omit<FollowUp, 'id'>) => {
+    setIsLoading(true);
+    try {
+      await api.createFollowUp(followUpData.leadId, {
+          notes: followUpData.notes,
+          date: followUpData.date,
+          status: followUpData.status,
+          createdBy: followUpData.createdBy
+        });
+      addToast('Follow-up Added', 'New outreach task scheduled successfully.', 'success');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Error', 'Could not schedule task in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const updateFollowUp = (id: string, updates: Partial<FollowUp>) => {
-    setFollowUps((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
-    );
-    addToast('Updated', 'Follow-up task updated.', 'info');
+  const updateFollowUp = async (id: string, updates: Partial<FollowUp>) => {
+    setIsLoading(true);
+    try {
+      await api.updateFollowUp(id, {
+          notes: updates.notes,
+          date: updates.date,
+          status: updates.status,
+          createdBy: updates.createdBy
+        });
+      addToast('Updated', 'Follow-up task updated.', 'info');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Error', 'Could not update task in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const completeFollowUp = (id: string) => {
-    setFollowUps((prev) =>
-      prev.map((f) => {
-        if (f.id === id) {
-          addActivity(f.leadId, 'Follow-up Completed', f.notes);
-          return { ...f, status: 'completed' as const };
-        }
-        return f;
-      })
-    );
-    addToast('Task Completed', 'Follow-up marked as completed.', 'success');
+  const completeFollowUp = async (id: string) => {
+    setIsLoading(true);
+    try {
+      await api.updateFollowUp(id, { status: 'completed' });
+      addToast('Task Completed', 'Follow-up marked as completed.', 'success');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Error', 'Could not complete task in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const deleteFollowUp = (id: string) => {
-    setFollowUps((prev) => prev.filter((f) => f.id !== id));
-    addToast('Removed', 'Follow-up task removed.', 'info');
+  const deleteFollowUp = async (id: string) => {
+    setIsLoading(true);
+    try {
+      await api.deleteFollowUp(id);
+      addToast('Removed', 'Follow-up task removed.', 'info');
+      await refreshData();
+    } catch (err) {
+      console.error(err);
+      addToast('Error', 'Could not delete task in Laravel API.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const markNotificationAsRead = (id: string) => {
@@ -221,6 +237,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentUser: mockCurrentUser,
         searchQuery,
         setSearchQuery,
+        isLoading,
+        refreshData,
+        dashboardMetrics,
         addLead,
         updateLead,
         deleteLead,
@@ -228,7 +247,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateFollowUp,
         completeFollowUp,
         deleteFollowUp,
-        addActivity,
         markNotificationAsRead,
         toasts,
         addToast,

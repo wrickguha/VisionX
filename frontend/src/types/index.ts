@@ -38,6 +38,7 @@ export interface FollowUp {
   notes: string;
   status: 'pending' | 'completed' | 'overdue';
   priority: 'low' | 'medium' | 'high';
+  createdBy?: string;
 }
 
 export interface ActivityLog {

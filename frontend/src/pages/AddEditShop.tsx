@@ -131,10 +131,10 @@ export const AddEditShop: React.FC = () => {
     };
 
     if (isEditMode && id) {
-      updateLead(id, leadPayload);
+      await updateLead(id, leadPayload);
       navigate(`/leads/${id}`);
     } else {
-      const newLead = addLead(leadPayload);
+      const newLead = await addLead(leadPayload);
       navigate(`/leads/${newLead.id}`);
     }
   };

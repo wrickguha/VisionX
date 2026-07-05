@@ -61,7 +61,7 @@ class DashboardService
             ->groupBy('demo_status')
             ->get()
             ->mapWithKeys(function ($item) {
-                return [$item->demo_status => (int) $item->count];
+                return [$item->demo_status->value => (int) $item->count];
             });
 
         $statusDistribution = [];
